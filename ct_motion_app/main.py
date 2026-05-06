@@ -7,21 +7,71 @@ from config import (
     DEFAULT_SPEED_THETA_AXIS,
     DEFAULT_ACCEL_THETA_AXIS,
     DEFAULT_DECEL_THETA_AXIS,
-    SMALL_TEST_MOVE,
     MOTOR_TYPE_Z_AXIS,
     MOTOR_TYPE_THETA_AXIS,
+    MICROSTEPPING_RESOLUTION_FACTOR,
+    ENCODER_COUNTS_PER_REVOLUTION,
+    STEPPER_STEPS_PER_REVOLUTION,
 )
 
+TEST_REVOLUTIONS = 10
 
-def print_axis_status(axis: Axis, axis_name: str) -> None:
+
+def get_axis_status(axis: Axis) -> dict[str, float]:
     """
-    Print the current encoder and step positions for a given axis.
+    Read the current encoder and step positions and convert them to degrees.
     """
     encoder_pos = axis.get_encoder_position()
     step_pos = axis.get_step_position()
+    step_counts_per_revolution = (
+        STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR
+    )
+    encoder_degrees = Axis.counts_to_degrees(
+        encoder_pos % ENCODER_COUNTS_PER_REVOLUTION,
+        ENCODER_COUNTS_PER_REVOLUTION,
+    )
+    step_degrees = Axis.counts_to_degrees(step_pos, step_counts_per_revolution)
 
-    print(f"{axis_name} encoder position: {encoder_pos}")
-    print(f"{axis_name} step position:    {step_pos}")
+    return {
+        "encoder_counts": encoder_pos,
+        "step_counts": step_pos,
+        "encoder_degrees": encoder_degrees,
+        "step_degrees": step_degrees,
+    }
+
+
+def print_axis_status(axis_name: str, status: dict[str, float]) -> None:
+    """
+    Print the current encoder and step positions for a given axis.
+    """
+    print(f"{axis_name} encoder counts:  {status['encoder_counts']:.0f}")
+    print(f"{axis_name} step counts:     {status['step_counts']:.0f}")
+    print(f"{axis_name} encoder angle:   {status['encoder_degrees']:.3f} deg modulo 360")
+    print(f"{axis_name} step angle:      {status['step_degrees']:.3f} deg unwrapped")
+
+
+def print_axis_delta(
+    axis_name: str,
+    before: dict[str, float],
+    after: dict[str, float],
+) -> None:
+    """
+    Print the change in encoder and step positions for a given axis.
+    """
+    encoder_count_delta = (
+        after["encoder_counts"] - before["encoder_counts"]
+    ) % ENCODER_COUNTS_PER_REVOLUTION
+    step_count_delta = after["step_counts"] - before["step_counts"]
+    encoder_angle_delta = Axis.counts_to_degrees(
+        encoder_count_delta,
+        ENCODER_COUNTS_PER_REVOLUTION,
+    )
+    step_angle_delta = after["step_degrees"] - before["step_degrees"]
+
+    print(f"{axis_name} encoder count delta: {encoder_count_delta:.0f} modulo 8000")
+    print(f"{axis_name} step count delta:    {step_count_delta:.0f}")
+    print(f"{axis_name} encoder angle delta: {encoder_angle_delta:.3f} deg modulo 360")
+    print(f"{axis_name} step angle delta:    {step_angle_delta:.3f} deg unwrapped")
 
 
 def main() -> None:
@@ -30,12 +80,23 @@ def main() -> None:
     z_axis = None
     theta_axis = None
 
-    z_move = SMALL_TEST_MOVE
-    theta_move = SMALL_TEST_MOVE * 4
+    step_counts_per_revolution = (
+        STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR
+    )
+    test_move_counts = TEST_REVOLUTIONS * step_counts_per_revolution
 
     try:
         controller.connect()
         print("Connected to controller")
+        print(f"Microstepping resolution factor: {MICROSTEPPING_RESOLUTION_FACTOR}")
+        print(f"Step counts per revolution: {step_counts_per_revolution}")
+        print(f"Encoder counts per revolution: {ENCODER_COUNTS_PER_REVOLUTION}")
+        print(f"Test move: {TEST_REVOLUTIONS} revolutions ({test_move_counts} counts)")
+        print(
+            "Expected step angle change: "
+            f"{TEST_REVOLUTIONS * 360.0:.3f} deg unwrapped"
+        )
+        print("Expected encoder angle change: 0.000 deg modulo 360")
 
         controller.abort()
 
@@ -64,42 +125,25 @@ def main() -> None:
         print("Theta Axis motor type:", theta_axis.get_motor_type())
         print("Is Theta Axis stepper:", "Yes" if theta_axis.is_stepper() else "No")
 
-        z_axis.zero_position()
-        z_axis.zero_encoder()
-        theta_axis.zero_position()
-        theta_axis.zero_encoder()
-
         print("\nInitial positions:")
-        print_axis_status(z_axis, "Z Axis")
-        print_axis_status(theta_axis, "Theta Axis")
+        z_start = get_axis_status(z_axis)
+        theta_start = get_axis_status(theta_axis)
+        print_axis_status("Z Axis", z_start)
+        print_axis_status("Theta Axis", theta_start)
 
-        print("\n--- Sequence 1: Z up, Theta forward ---")
-        z_axis.move_relative(z_move, wait=True)
-        theta_axis.move_relative(theta_move, wait=True)
-        print_axis_status(z_axis, "Z Axis")
-        print_axis_status(theta_axis, "Theta Axis")
+        print(f"\n--- Test bench: move {TEST_REVOLUTIONS} revolutions ---")
+        z_axis.move_relative(test_move_counts, wait=True)
+        theta_axis.move_relative(test_move_counts, wait=True)
 
-        print("\n--- Sequence 2: Z down, Theta backward ---")
-        z_axis.move_relative(-z_move, wait=True)
-        theta_axis.move_relative(-theta_move, wait=True)
-        print_axis_status(z_axis, "Z Axis")
-        print_axis_status(theta_axis, "Theta Axis")
+        print("\nFinal positions:")
+        z_end = get_axis_status(z_axis)
+        theta_end = get_axis_status(theta_axis)
+        print_axis_status("Z Axis", z_end)
+        print_axis_status("Theta Axis", theta_end)
 
-        print("\n--- Sequence 3: Alternating motion pattern ---")
-        for i in range(3):
-            print(f"\nCycle {i + 1}:")
-
-            print("  Z positive, Theta negative")
-            z_axis.move_relative(z_move, wait=True)
-            theta_axis.move_relative(-theta_move, wait=True)
-            print_axis_status(z_axis, "Z Axis")
-            print_axis_status(theta_axis, "Theta Axis")
-
-            print("  Z negative, Theta positive")
-            z_axis.move_relative(-z_move, wait=True)
-            theta_axis.move_relative(theta_move, wait=True)
-            print_axis_status(z_axis, "Z Axis")
-            print_axis_status(theta_axis, "Theta Axis")
+        print("\nMeasured change:")
+        print_axis_delta("Z Axis", z_start, z_end)
+        print_axis_delta("Theta Axis", theta_start, theta_end)
 
     finally:
         try:

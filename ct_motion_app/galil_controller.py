@@ -1,4 +1,9 @@
 import gclib
+from config import (
+    ENCODER_COUNTS_PER_REVOLUTION,
+    MICROSTEPPING_RESOLUTION_FACTOR,
+    STEPPER_STEPS_PER_REVOLUTION,
+)
 
 
 class Axis:
@@ -44,6 +49,28 @@ class Axis:
 
     def get_step_position(self) -> int:
         return int(float(self.controller.command(f"TD{self.name}")))
+
+    def get_encoder_position_degrees(self) -> float:
+        return self.counts_to_degrees(
+            self.get_encoder_position() % ENCODER_COUNTS_PER_REVOLUTION,
+            ENCODER_COUNTS_PER_REVOLUTION,
+        )
+
+    def get_step_position_degrees(self) -> float:
+        steps_per_revolution = (
+            STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR
+        )
+        return self.counts_to_degrees(self.get_step_position(), steps_per_revolution)
+
+    def get_position_degrees(self) -> dict[str, float]:
+        return {
+            "encoder_degrees": self.get_encoder_position_degrees(),
+            "step_degrees": self.get_step_position_degrees(),
+        }
+
+    @staticmethod
+    def counts_to_degrees(counts: int, counts_per_revolution: int) -> float:
+        return counts * 360.0 / counts_per_revolution
 
     def get_motor_type(self) -> float:
         return float(self.controller.command(f"MG _MT{self.name}"))

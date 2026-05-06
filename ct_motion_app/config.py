@@ -10,6 +10,13 @@ DEFAULT_DECEL_THETA_AXIS = 1000
 
 SMALL_TEST_MOVE = 400
 
+# Stepper motors are 400 full steps per revolution. The drives are currently
+# configured for quarter stepping, so commanded step counts are scaled by 4.
+STEPPER_STEPS_PER_REVOLUTION = 400
+MICROSTEPPING_RESOLUTION_FACTOR = 1
+
+ENCODER_COUNTS_PER_REVOLUTION = 8000
+
 #Stepper Motor = 2
 MOTOR_TYPE_Z_AXIS = 2 
 MOTOR_TYPE_THETA_AXIS = 2
