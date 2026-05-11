@@ -1,3 +1,5 @@
+from time import sleep
+
 from galil_controller import GalilController, Axis
 from config import (
     CONTROLLER_ADDRESS,
@@ -14,7 +16,7 @@ from config import (
     STEPPER_STEPS_PER_REVOLUTION,
 )
 
-TEST_REVOLUTIONS = 10
+MONITOR_PERIOD_SECONDS = 0.25
 
 
 def get_axis_status(axis: Axis) -> dict[str, float]:
@@ -40,38 +42,15 @@ def get_axis_status(axis: Axis) -> dict[str, float]:
     }
 
 
-def print_axis_status(axis_name: str, status: dict[str, float]) -> None:
+def format_axis_status(axis_name: str, status: dict[str, float]) -> str:
     """
-    Print the current encoder and step positions for a given axis.
+    Format the current encoder and step angles for a given axis.
     """
-    print(f"{axis_name} encoder counts:  {status['encoder_counts']:.0f}")
-    print(f"{axis_name} step counts:     {status['step_counts']:.0f}")
-    print(f"{axis_name} encoder angle:   {status['encoder_degrees']:.3f} deg modulo 360")
-    print(f"{axis_name} step angle:      {status['step_degrees']:.3f} deg unwrapped")
-
-
-def print_axis_delta(
-    axis_name: str,
-    before: dict[str, float],
-    after: dict[str, float],
-) -> None:
-    """
-    Print the change in encoder and step positions for a given axis.
-    """
-    encoder_count_delta = (
-        after["encoder_counts"] - before["encoder_counts"]
-    ) % ENCODER_COUNTS_PER_REVOLUTION
-    step_count_delta = after["step_counts"] - before["step_counts"]
-    encoder_angle_delta = Axis.counts_to_degrees(
-        encoder_count_delta,
-        ENCODER_COUNTS_PER_REVOLUTION,
+    return (
+        f"{axis_name}: "
+        f"encoder={status['encoder_degrees']:8.3f} deg mod360 "
+        f"step={status['step_degrees']:10.3f} deg unwrapped"
     )
-    step_angle_delta = after["step_degrees"] - before["step_degrees"]
-
-    print(f"{axis_name} encoder count delta: {encoder_count_delta:.0f} modulo 8000")
-    print(f"{axis_name} step count delta:    {step_count_delta:.0f}")
-    print(f"{axis_name} encoder angle delta: {encoder_angle_delta:.3f} deg modulo 360")
-    print(f"{axis_name} step angle delta:    {step_angle_delta:.3f} deg unwrapped")
 
 
 def main() -> None:
@@ -80,23 +59,19 @@ def main() -> None:
     z_axis = None
     theta_axis = None
 
-    step_counts_per_revolution = (
-        STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR
-    )
-    test_move_counts = TEST_REVOLUTIONS * step_counts_per_revolution
-
     try:
         controller.connect()
         print("Connected to controller")
         print(f"Microstepping resolution factor: {MICROSTEPPING_RESOLUTION_FACTOR}")
-        print(f"Step counts per revolution: {step_counts_per_revolution}")
-        print(f"Encoder counts per revolution: {ENCODER_COUNTS_PER_REVOLUTION}")
-        print(f"Test move: {TEST_REVOLUTIONS} revolutions ({test_move_counts} counts)")
         print(
-            "Expected step angle change: "
-            f"{TEST_REVOLUTIONS * 360.0:.3f} deg unwrapped"
+            "Step counts per revolution: "
+            f"{STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR}"
         )
-        print("Expected encoder angle change: 0.000 deg modulo 360")
+        print(f"Encoder counts per revolution: {ENCODER_COUNTS_PER_REVOLUTION}")
+        print(
+            "Monitoring angular values every "
+            f"{MONITOR_PERIOD_SECONDS:.2f} seconds. Press Ctrl+C to stop."
+        )
 
         controller.abort()
 
@@ -125,25 +100,31 @@ def main() -> None:
         print("Theta Axis motor type:", theta_axis.get_motor_type())
         print("Is Theta Axis stepper:", "Yes" if theta_axis.is_stepper() else "No")
 
-        print("\nInitial positions:")
-        z_start = get_axis_status(z_axis)
-        theta_start = get_axis_status(theta_axis)
-        print_axis_status("Z Axis", z_start)
-        print_axis_status("Theta Axis", theta_start)
+        print()
 
-        print(f"\n--- Test bench: move {TEST_REVOLUTIONS} revolutions ---")
-        z_axis.move_relative(test_move_counts, wait=True)
-        theta_axis.move_relative(test_move_counts, wait=True)
+        #Zero all of the values
+        z_axis.zero_encoder()
+        z_axis.zero_position()
+        theta_axis.zero_encoder()
+        theta_axis.zero_position()
 
-        print("\nFinal positions:")
-        z_end = get_axis_status(z_axis)
-        theta_end = get_axis_status(theta_axis)
-        print_axis_status("Z Axis", z_end)
-        print_axis_status("Theta Axis", theta_end)
+        z_axis.jog(DEFAULT_SPEED_Z_AXIS)
+        theta_axis.jog(DEFAULT_SPEED_THETA_AXIS)
 
-        print("\nMeasured change:")
-        print_axis_delta("Z Axis", z_start, z_end)
-        print_axis_delta("Theta Axis", theta_start, theta_end)
+        while True:
+            z_status = get_axis_status(z_axis)
+            theta_status = get_axis_status(theta_axis)
+            print(
+                f"{format_axis_status('Z Axis', z_status)} | "
+                f"{format_axis_status('Theta Axis', theta_status)}",
+                flush=True,
+            )
+            sleep(MONITOR_PERIOD_SECONDS)
+
+    except KeyboardInterrupt:
+        theta_axis.stop()
+        z_axis.stop()
+        print("\nStopped live angle monitor")
 
     finally:
         try:
