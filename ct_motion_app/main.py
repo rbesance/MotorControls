@@ -1,56 +1,50 @@
-from time import sleep
-
-from galil_controller import GalilController, Axis
+from galil_controller import Axis, GalilController
 from config import (
     CONTROLLER_ADDRESS,
-    DEFAULT_SPEED_Z_AXIS,
+    DEFAULT_ACCEL_THETA_AXIS,
     DEFAULT_ACCEL_Z_AXIS,
+    DEFAULT_DECEL_THETA_AXIS,
     DEFAULT_DECEL_Z_AXIS,
     DEFAULT_SPEED_THETA_AXIS,
-    DEFAULT_ACCEL_THETA_AXIS,
-    DEFAULT_DECEL_THETA_AXIS,
-    MOTOR_TYPE_Z_AXIS,
+    DEFAULT_SPEED_Z_AXIS,
+    HOME_ACCEL_THETA_AXIS,
+    HOME_ACCEL_Z_AXIS,
+    HOME_BACKOFF_THETA_AXIS,
+    HOME_BACKOFF_Z_AXIS,
+    HOME_DECEL_THETA_AXIS,
+    HOME_DECEL_Z_AXIS,
+    HOME_FINE_SPEED_THETA_AXIS,
+    HOME_FINE_SPEED_Z_AXIS,
+    HOME_INPUT_POLARITY,
+    HOME_SPEED_THETA_AXIS,
+    HOME_SPEED_Z_AXIS,
+    HOME_TIMEOUT_MS_THETA_AXIS,
+    HOME_TIMEOUT_MS_Z_AXIS,
     MOTOR_TYPE_THETA_AXIS,
-    MICROSTEPPING_RESOLUTION_FACTOR,
-    ENCODER_COUNTS_PER_REVOLUTION,
-    STEPPER_STEPS_PER_REVOLUTION,
+    MOTOR_TYPE_Z_AXIS,
 )
 
-MONITOR_PERIOD_SECONDS = 0.25
 
-
-def get_axis_status(axis: Axis) -> dict[str, float]:
+def print_axis_status(axis: Axis, axis_name: str, has_physical_limits: bool) -> None:
     """
-    Read the current encoder and step positions and convert them to degrees.
+    Print useful axis state before and after homing.
     """
-    encoder_pos = axis.get_encoder_position()
-    step_pos = axis.get_step_position()
-    step_counts_per_revolution = (
-        STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR
-    )
-    encoder_degrees = Axis.counts_to_degrees(
-        encoder_pos % ENCODER_COUNTS_PER_REVOLUTION,
-        ENCODER_COUNTS_PER_REVOLUTION,
-    )
-    step_degrees = Axis.counts_to_degrees(step_pos, step_counts_per_revolution)
+    print(f"{axis_name} motor type: {axis.get_motor_type()}")
+    print(f"{axis_name} is stepper: {'Yes' if axis.is_stepper() else 'No'}")
+    print(f"{axis_name} encoder position: {axis.get_encoder_position()}")
+    print(f"{axis_name} step position: {axis.get_step_position()}")
+    print(f"{axis_name} home switch state (_HM): {axis.get_home_switch_state()}")
+    print(f"{axis_name} stop code (_SC): {axis.get_stop_code()}")
+    print(f"{axis_name} switch status (_TS): {axis.get_switch_status()}")
 
-    return {
-        "encoder_counts": encoder_pos,
-        "step_counts": step_pos,
-        "encoder_degrees": encoder_degrees,
-        "step_degrees": step_degrees,
-    }
+    if not has_physical_limits:
+        print(
+            f"{axis_name} forward/reverse limit readback: "
+            "reported by controller, but physical switches may not be wired"
+        )
 
-
-def format_axis_status(axis_name: str, status: dict[str, float]) -> str:
-    """
-    Format the current encoder and step angles for a given axis.
-    """
-    return (
-        f"{axis_name}: "
-        f"encoder={status['encoder_degrees']:8.3f} deg mod360 "
-        f"step={status['step_degrees']:10.3f} deg unwrapped"
-    )
+    print(f"{axis_name} forward limit state: {axis.get_forward_limit_state()}")
+    print(f"{axis_name} reverse limit state: {axis.get_reverse_limit_state()}")
 
 
 def main() -> None:
@@ -62,31 +56,21 @@ def main() -> None:
     try:
         controller.connect()
         print("Connected to controller")
-        print(f"Microstepping resolution factor: {MICROSTEPPING_RESOLUTION_FACTOR}")
-        print(
-            "Step counts per revolution: "
-            f"{STEPPER_STEPS_PER_REVOLUTION * MICROSTEPPING_RESOLUTION_FACTOR}"
-        )
-        print(f"Encoder counts per revolution: {ENCODER_COUNTS_PER_REVOLUTION}")
-        print(
-            "Monitoring angular values every "
-            f"{MONITOR_PERIOD_SECONDS:.2f} seconds. Press Ctrl+C to stop."
-        )
+        print(f"Home input polarity configured with CN ,{HOME_INPUT_POLARITY}")
 
+        # Stop any previous motion before configuring or homing.
         controller.abort()
 
-        z_axis = controller.axis("A")
+        # z_axis = controller.axis("A")
         theta_axis = controller.axis("B")
 
-        z_axis.enable()
-        z_axis.set_profile(
-            speed=DEFAULT_SPEED_Z_AXIS,
-            accel=DEFAULT_ACCEL_Z_AXIS,
-            decel=DEFAULT_DECEL_Z_AXIS,
-            motor_type=MOTOR_TYPE_Z_AXIS,
-        )
-
-        theta_axis.enable()
+        # Configure normal motion profiles before enabling the motors.
+        # z_axis.set_profile(
+        #     speed=DEFAULT_SPEED_Z_AXIS,
+        #     accel=DEFAULT_ACCEL_Z_AXIS,
+        #     decel=DEFAULT_DECEL_Z_AXIS,
+        #     motor_type=MOTOR_TYPE_Z_AXIS,
+        # )
         theta_axis.set_profile(
             speed=DEFAULT_SPEED_THETA_AXIS,
             accel=DEFAULT_ACCEL_THETA_AXIS,
@@ -94,37 +78,48 @@ def main() -> None:
             motor_type=MOTOR_TYPE_THETA_AXIS,
         )
 
-        print("Z Axis motor type:", z_axis.get_motor_type())
-        print("Is Z Axis stepper:", "Yes" if z_axis.is_stepper() else "No")
+        # z_axis.enable()
+        theta_axis.enable()
 
-        print("Theta Axis motor type:", theta_axis.get_motor_type())
-        print("Is Theta Axis stepper:", "Yes" if theta_axis.is_stepper() else "No")
-
+        print("\nBefore homing:")
+        # print_axis_status(z_axis, "Z Axis", has_physical_limits=False)
         print()
+        print_axis_status(theta_axis, "Theta Axis", has_physical_limits=False)
 
-        #Zero all of the values
-        z_axis.zero_encoder()
-        z_axis.zero_position()
-        theta_axis.zero_encoder()
-        theta_axis.zero_position()
+        # Home Z first. HM uses the home switch and encoder index pulse.
+        # The backoff move pulls away from the switch, then the fine HM pass
+        # approaches more slowly for better repeatability.
+        # print("\nHoming Z Axis with HM...")
+        # z_axis.home_standard(
+        #     coarse_speed=HOME_SPEED_Z_AXIS,
+        #     fine_speed=HOME_FINE_SPEED_Z_AXIS,
+        #     accel=HOME_ACCEL_Z_AXIS,
+        #     decel=HOME_DECEL_Z_AXIS,
+        #     backoff_counts=HOME_BACKOFF_Z_AXIS,
+        #     zero_after=True,
+        #     timeout_ms=HOME_TIMEOUT_MS_Z_AXIS,
+        # )
+        # print("Z Axis homing complete")
 
-        z_axis.jog(DEFAULT_SPEED_Z_AXIS)
-        theta_axis.jog(DEFAULT_SPEED_THETA_AXIS)
+        # Home Theta with HM as well. Theta has no physical forward/reverse
+        # limit switches, so the home switch and index pulse are the critical
+        # safety and repeatability references for this axis.
+        print("\nHoming Theta Axis with HM...")
+        theta_axis.home_with_backoff(
+            coarse_speed=HOME_SPEED_THETA_AXIS,
+            fine_speed=HOME_FINE_SPEED_THETA_AXIS,
+            accel=HOME_ACCEL_THETA_AXIS,
+            decel=HOME_DECEL_THETA_AXIS,
+            backoff_counts=HOME_BACKOFF_THETA_AXIS,
+            zero_after=True,
+            timeout_ms=HOME_TIMEOUT_MS_THETA_AXIS,
+        )
+        print("Theta Axis homing complete")
 
-        while True:
-            z_status = get_axis_status(z_axis)
-            theta_status = get_axis_status(theta_axis)
-            print(
-                f"{format_axis_status('Z Axis', z_status)} | "
-                f"{format_axis_status('Theta Axis', theta_status)}",
-                flush=True,
-            )
-            sleep(MONITOR_PERIOD_SECONDS)
-
-    except KeyboardInterrupt:
-        theta_axis.stop()
-        z_axis.stop()
-        print("\nStopped live angle monitor")
+        print("\nAfter homing:")
+        # print_axis_status(z_axis, "Z Axis", has_physical_limits=True)
+        # print()
+        print_axis_status(theta_axis, "Theta Axis", has_physical_limits=False)
 
     finally:
         try:
