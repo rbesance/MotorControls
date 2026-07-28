@@ -1,5 +1,17 @@
 CONTROLLER_ADDRESS = "192.168.42.54"
 
+# DMC-4040 standard uncommitted digital I/O.
+#
+# The 1-4 axis DMC-4000 controllers, including the DMC-4040, provide
+# 8 opto-isolated digital inputs and 8 opto-isolated digital outputs.
+# If the controller is fitted with optional extended I/O, increase
+# DIGITAL_IO_MAX_BIT after confirming the installed hardware and any
+# controller-side I/O configuration.
+DIGITAL_IO_MIN_BIT = 1
+DIGITAL_IO_MAX_BIT = 8
+DIGITAL_OUTPUT_PORT_MIN_VALUE = 0
+DIGITAL_OUTPUT_PORT_MAX_VALUE = 255
+
 DEFAULT_SPEED_Z_AXIS = 400
 DEFAULT_ACCEL_Z_AXIS = 10000
 DEFAULT_DECEL_Z_AXIS = 10000
